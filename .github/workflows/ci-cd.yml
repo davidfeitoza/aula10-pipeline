@@ -1,0 +1,106 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Compilar
+        run: mvn -B clean compile
+
+  test:
+    name: Testes Unitários
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Testes e cobertura mínima de 80%
+        run: mvn -B verify
+
+      - name: Publicar relatório de cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-report
+          path: target/site/jacoco
+
+  static-analysis:
+    name: Análise Estática
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Checkstyle
+        run: mvn -B checkstyle:check
+
+  deploy-staging:
+    name: Deploy Staging
+    needs: static-analysis
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Empacotar aplicação
+        run: mvn -B package -DskipTests
+
+      - name: Publicar pacote de staging
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-staging
+          path: target/*.jar
+
+      - name: Deploy (simulado)
+        run: echo "Deploy em staging concluído com sucesso"
+
+  notify-failure:
+    name: Notificação de Falha
+    needs: [build, test, static-analysis]
+    if: failure()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Avisar falha
+        run: echo "::error::Pipeline falhou no commit ${{ github.sha }} (branch ${{ github.ref_name }})"
